@@ -81,25 +81,13 @@ module.exports = async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   try {
-    if (!SPREADSHEET_ID) return res.status(500).json({ error: 'SPREADSHEET_ID not set' });
     const rawKey = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
-    if (!rawKey) return res.status(500).json({ error: 'GOOGLE_SERVICE_ACCOUNT_KEY not set' });
-    let keyJson;
-    try {
-      keyJson = JSON.parse(rawKey);
-    } catch (parseErr) {
-      return res.status(500).json({ error: 'Failed to parse service account key: ' + parseErr.message, keyLength: rawKey.length });
-    }
+    const keyJson = JSON.parse(rawKey);
     const auth = new google.auth.GoogleAuth({
       credentials: keyJson,
       scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
     });
     const sheets = google.sheets({ version: 'v4', auth });
-
-    // First verify spreadsheet is accessible
-    if (req.query.debug === '1') return res.status(200).json({ spreadsheetId: SPREADSHEET_ID, keyEmail: keyJson.client_email });
-    const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
-    const tabNames = meta.data.sheets.map(s => s.properties.title);
 
     const result = await sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
@@ -118,7 +106,7 @@ module.exports = async function handler(req, res) {
     }
 
     if (headerIdx < 0) {
-      return res.status(500).json({ error: 'Header row not found', tabs: tabNames, rowCount: rows.length });
+      return res.status(500).json({ error: 'Header row not found' });
     }
 
     const headers = rows[headerIdx];
@@ -188,6 +176,6 @@ module.exports = async function handler(req, res) {
     res.status(200).json(data);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: err.message, code: err.code, status: err.status });
+    res.status(500).json({ error: err.message });
   }
 };
