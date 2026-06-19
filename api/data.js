@@ -81,7 +81,14 @@ module.exports = async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   try {
-    const keyJson = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY);
+    const rawKey = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+    if (!rawKey) return res.status(500).json({ error: 'GOOGLE_SERVICE_ACCOUNT_KEY not set' });
+    let keyJson;
+    try {
+      keyJson = JSON.parse(rawKey);
+    } catch (parseErr) {
+      return res.status(500).json({ error: 'Failed to parse service account key: ' + parseErr.message, keyLength: rawKey.length });
+    }
     const auth = new google.auth.GoogleAuth({
       credentials: keyJson,
       scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
@@ -175,6 +182,6 @@ module.exports = async function handler(req, res) {
     res.status(200).json(data);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: err.message, code: err.code, status: err.status });
   }
 };
