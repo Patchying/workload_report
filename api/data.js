@@ -97,6 +97,7 @@ module.exports = async function handler(req, res) {
     const sheets = google.sheets({ version: 'v4', auth });
 
     // First verify spreadsheet is accessible
+    if (req.query.debug === '1') return res.status(200).json({ spreadsheetId: SPREADSHEET_ID, keyEmail: keyJson.client_email });
     const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
     const tabNames = meta.data.sheets.map(s => s.properties.title);
 
