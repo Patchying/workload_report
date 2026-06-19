@@ -81,6 +81,7 @@ module.exports = async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   try {
+    if (!SPREADSHEET_ID) return res.status(500).json({ error: 'SPREADSHEET_ID not set' });
     const rawKey = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
     if (!rawKey) return res.status(500).json({ error: 'GOOGLE_SERVICE_ACCOUNT_KEY not set' });
     let keyJson;
@@ -94,6 +95,10 @@ module.exports = async function handler(req, res) {
       scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
     });
     const sheets = google.sheets({ version: 'v4', auth });
+
+    // First verify spreadsheet is accessible
+    const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
+    const tabNames = meta.data.sheets.map(s => s.properties.title);
 
     const result = await sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
@@ -112,7 +117,7 @@ module.exports = async function handler(req, res) {
     }
 
     if (headerIdx < 0) {
-      return res.status(500).json({ error: 'Header row not found' });
+      return res.status(500).json({ error: 'Header row not found', tabs: tabNames, rowCount: rows.length });
     }
 
     const headers = rows[headerIdx];
