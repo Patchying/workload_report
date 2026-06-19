@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MDS Task Time Tracker</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --gold:    #C8960C;
+    --gold-lt: #E8B84B;
+    --bg:      #FAFAF8;
+    --surface: #FFFFFF;
+    --border:  #E5E0D5;
+    --text:    #2C2A26;
+    --muted:   #8A8070;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); }
+
+  /* NAV */
+  nav { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; display: flex; align-items: center; gap: 8px; }
+  nav h1 { font-size: 15px; font-weight: 600; color: var(--gold); padding: 14px 0; margin-right: 24px; }
+  .tab { border: none; background: none; padding: 14px 16px; font-size: 14px; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; transition: color .15s; }
+  .tab.active { color: var(--gold); border-bottom-color: var(--gold); font-weight: 600; }
+
+  /* PAGES */
+  .page { display: none; padding: 24px; }
+  .page.active { display: block; }
+
+  /* TOOLBAR */
+  .toolbar { display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+  .toolbar-group { display: flex; flex-direction: column; gap: 6px; }
+  .toolbar-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+
+  /* MONTH CHIPS */
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { padding: 4px 12px; border-radius: 999px; border: 1.5px solid var(--border); background: var(--surface); font-size: 13px; cursor: pointer; color: var(--muted); transition: all .15s; }
+  .chip.active { border-color: var(--gold); color: var(--gold); font-weight: 600; background: #FFF8E7; }
+
+  /* MODE TOGGLE */
+  .mode-toggle { display: flex; border: 1.5px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .mode-btn { padding: 6px 18px; border: none; background: var(--surface); font-size: 13px; cursor: pointer; color: var(--muted); transition: all .15s; }
+  .mode-btn.active { background: var(--gold); color: #fff; font-weight: 600; }
+
+  /* CHART CARD */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
+  .chart-wrap { position: relative; height: 500px; }
+
+  /* MODAL */
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 100; align-items: center; justify-content: center; }
+  .modal-overlay.open { display: flex; }
+  .modal { background: var(--surface); border-radius: 14px; padding: 28px; width: 440px; max-height: 80vh; overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,.18); }
+  .modal h3 { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+  .modal .modal-sub { font-size: 13px; color: var(--muted); margin-bottom: 18px; }
+  .modal-close { float: right; border: none; background: none; font-size: 20px; cursor: pointer; color: var(--muted); margin-top: -4px; }
+  .sub-row { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .sub-row:last-child { border-bottom: none; }
+  .sub-row .val { font-weight: 600; color: var(--gold); }
+
+  /* PLACEHOLDER */
+  .placeholder { text-align: center; padding: 80px 20px; color: var(--muted); }
+  .placeholder h2 { font-size: 22px; margin-bottom: 8px; color: var(--text); }
+</style>
+</head>
+<body>
+
+<nav>
+  <h1>MDS Task Tracker</h1>
+  <button class="tab active" data-tab="analysis">Data Analysis</button>
+  <button class="tab" data-tab="performance">Performance Tracking</button>
+</nav>
+
+<div id="analysis" class="page active">
+  <div class="toolbar">
+    <div class="toolbar-group">
+      <div class="toolbar-label">Month Filter</div>
+      <div class="chips" id="monthChips"></div>
+    </div>
+    <div class="toolbar-group">
+      <div class="toolbar-label">Chart Mode</div>
+      <div class="mode-toggle">
+        <button class="mode-btn active" id="btnFixed">Fixed</button>
+        <button class="mode-btn" id="btnRanked">Ranked</button>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="chart-wrap"><canvas id="mainChart"></canvas></div>
+  </div>
+</div>
+
+<div id="performance" class="page">
+  <div class="placeholder">
+    <h2>Performance Tracking</h2>
+    <p>Coming soon.</p>
+  </div>
+</div>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <button class="modal-close" id="modalClose">✕</button>
+    <h3 id="modalTitle"></h3>
+    <div class="modal-sub" id="modalSub"></div>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<script>
+// ── Constants ────────────────────────────────────────────────────────────────
+const CATS = [
+  { key: 'C&M External',                color: '#E8B84B' },
+  { key: 'C&M Internal',                color: '#C8960C' },
+  { key: 'Issue Handling',              color: '#E07B54' },
+  { key: 'Documentation & Content',     color: '#26A69A' },
+  { key: 'Data Operations',             color: '#4A90D9' },
+  { key: 'System & Portal Management',  color: '#7B68EE' },
+  { key: 'Strategic Initiatives',       color: '#5CB85C' },
+];
+
+const BENCHMARK = {
+  'C&M Internal':                9.0,
+  'C&M External':                6.0,
+  'Data Operations':             9.0,
+  'Documentation & Content':     9.0,
+  'Issue Handling':              8.0,
+  'Strategic Initiatives':      45.0,
+  'System & Portal Management': 14.0,
+};
+
+const JOURNEY = [
+  'B2B Marketing','Enterprise Sales','SMB Sales','After Sales Service',
+  'Merchant Activation','Merchant Onboarding','Merchant Data','Supply Chain',
+  'Business Strategy & Optimization','Sales Operations','Learning & Development',
+  'Transformation','Customer Success','Enterprise Business and Operations',
+  'Jera- Technical Support','Lifestyle Content & News',
+  'Merchant Digital Solutions - WN',
+];
+
+const CM_INTERNAL_SUBS = [
+  '1.1 Internal team meeting',
+  '1.3 Cross-functional meeting',
+  '1.4 Rollout meeting',
+];
+
+// ── State ────────────────────────────────────────────────────────────────────
+let allData = [];
+let selectedMonths = new Set();
+let chartMode = 'fixed';
+let chartInstance = null;
+
+// ── Tab nav ──────────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.tab).classList.add('active');
+  });
+});
+
+// ── Mode toggle ──────────────────────────────────────────────────────────────
+document.getElementById('btnFixed').addEventListener('click', () => setMode('fixed'));
+document.getElementById('btnRanked').addEventListener('click', () => setMode('ranked'));
+function setMode(m) {
+  chartMode = m;
+  document.getElementById('btnFixed').classList.toggle('active', m === 'fixed');
+  document.getElementById('btnRanked').classList.toggle('active', m === 'ranked');
+  renderChart();
+}
+
+// ── Modal ────────────────────────────────────────────────────────────────────
+document.getElementById('modalClose').addEventListener('click', closeModal);
+document.getElementById('modalOverlay').addEventListener('click', e => { if (e.target === e.currentTarget) closeModal(); });
+function closeModal() { document.getElementById('modalOverlay').classList.remove('open'); }
+
+function openModal(team, catKey) {
+  const rows = filteredRows();
+  const teamRows = rows.filter(r => r.t === team);
+  document.getElementById('modalTitle').textContent = `${team}`;
+  document.getElementById('modalSub').textContent = catKey;
+
+  let subsToShow = [];
+  const isCM = catKey === 'C&M Internal' || catKey === 'C&M External';
+
+  if (isCM) {
+    // Show all C&M subs
+    const allCMKeys = Object.keys(teamRows[0]?.subs || {}).filter(k => k.startsWith('1.'));
+    const subTotals = {};
+    for (const row of teamRows) {
+      for (const [k, v] of Object.entries(row.subs || {})) {
+        if (k.startsWith('1.')) subTotals[k] = (subTotals[k] || 0) + v;
+      }
+    }
+    subsToShow = Object.entries(subTotals).map(([k, v]) => ({ label: k, val: v }))
+      .filter(x => x.val > 0).sort((a, b) => a.label.localeCompare(b.label));
+  } else {
+    const prefix = {
+      'Documentation & Content': '2.',
+      'Data Operations': '3.',
+      'System & Portal Management': '4.',
+      'Issue Handling': '5.',
+      'Strategic Initiatives': '6.',
+    }[catKey];
+    if (prefix) {
+      const subTotals = {};
+      for (const row of teamRows) {
+        for (const [k, v] of Object.entries(row.subs || {})) {
+          if (k.startsWith(prefix)) subTotals[k] = (subTotals[k] || 0) + v;
+        }
+      }
+      subsToShow = Object.entries(subTotals).map(([k, v]) => ({ label: k, val: v }))
+        .filter(x => x.val > 0).sort((a, b) => a.label.localeCompare(b.label));
+    }
+  }
+
+  const body = document.getElementById('modalBody');
+  if (subsToShow.length === 0) {
+    body.innerHTML = '<p style="color:var(--muted);font-size:13px">No subcategory data available.</p>';
+  } else {
+    body.innerHTML = subsToShow.map(s =>
+      `<div class="sub-row"><span>${s.label}</span><span class="val">${s.val.toFixed(1)}%</span></div>`
+    ).join('');
+  }
+
+  document.getElementById('modalOverlay').classList.add('open');
+}
+
+// ── Data helpers ─────────────────────────────────────────────────────────────
+function monthKey(r) { return `${r.y}-${String(r.m).padStart(2,'0')}`; }
+function monthLabel(mk) {
+  const [y, m] = mk.split('-');
+  return new Date(+y, +m - 1, 1).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' });
+}
+
+function filteredRows() {
+  if (selectedMonths.size === 0) return allData;
+  return allData.filter(r => selectedMonths.has(monthKey(r)));
+}
+
+function computeCats(row) {
+  const cmInternal = CM_INTERNAL_SUBS.reduce((s, k) => s + (row.subs?.[k] || 0), 0);
+  const cmTotal = row['Communication & Meetings'] || 0;
+  const cmExternal = Math.max(0, cmTotal - cmInternal);
+  return {
+    'C&M External':               cmExternal,
+    'C&M Internal':               cmInternal,
+    'Issue Handling':             row['Issue Handling'] || 0,
+    'Documentation & Content':    row['Documentation & Content'] || 0,
+    'Data Operations':            row['Data Operations'] || 0,
+    'System & Portal Management': row['System & Portal Management'] || 0,
+    'Strategic Initiatives':      row['Strategic Initiatives'] || 0,
+  };
+}
+
+function aggregateByTeam(rows) {
+  const map = {};
+  for (const row of rows) {
+    const cats = computeCats(row);
+    if (!map[row.t]) map[row.t] = { count: 0, vals: Object.fromEntries(CATS.map(c => [c.key, 0])), subs: {} };
+    map[row.t].count++;
+    for (const c of CATS) map[row.t].vals[c.key] += cats[c.key];
+    // Merge subs
+    for (const [k, v] of Object.entries(row.subs || {})) {
+      map[row.t].subs[k] = (map[row.t].subs[k] || 0) + v;
+    }
+  }
+  // Average
+  const result = {};
+  for (const [team, agg] of Object.entries(map)) {
+    result[team] = { vals: {}, subs: agg.subs };
+    for (const c of CATS) result[team].vals[c.key] = agg.vals[c.key] / agg.count;
+  }
+  return result;
+}
+
+// ── Chart ────────────────────────────────────────────────────────────────────
+function renderChart() {
+  const rows = filteredRows();
+  const byTeam = aggregateByTeam(rows);
+
+  // Team order
+  const presentTeams = Object.keys(byTeam);
+  const ordered = [
+    ...JOURNEY.filter(t => presentTeams.includes(t)),
+    ...presentTeams.filter(t => !JOURNEY.includes(t)),
+  ];
+
+  const labels = [...ordered, '— Total —', '⬥ Benchmark'];
+
+  // Build total (average across all teams)
+  const totalVals = Object.fromEntries(CATS.map(c => [c.key, 0]));
+  const totalSubs = {};
+  for (const team of ordered) {
+    for (const c of CATS) totalVals[c.key] += byTeam[team].vals[c.key];
+    for (const [k, v] of Object.entries(byTeam[team].subs || {})) {
+      totalSubs[k] = (totalSubs[k] || 0) + v;
+    }
+  }
+  const n = ordered.length || 1;
+  for (const c of CATS) totalVals[c.key] /= n;
+  for (const k of Object.keys(totalSubs)) totalSubs[k] /= n;
+
+  byTeam['— Total —'] = { vals: totalVals, subs: totalSubs };
+  byTeam['⬥ Benchmark'] = { vals: { ...BENCHMARK }, subs: {} };
+
+  const allLabels = labels; // ordered + total + benchmark
+
+  if (chartMode === 'fixed') {
+    renderFixed(allLabels, byTeam);
+  } else {
+    renderRanked(allLabels, byTeam);
+  }
+}
+
+function renderFixed(labels, byTeam) {
+  const datasets = CATS.map(cat => ({
+    label: cat.key,
+    backgroundColor: cat.color,
+    data: labels.map(t => +(byTeam[t]?.vals[cat.key] || 0).toFixed(2)),
+    stack: 'stack',
+  }));
+  drawChart(labels, datasets, byTeam);
+}
+
+function renderRanked(labels, byTeam) {
+  // For each team, sort cats by value ascending (bottom=smallest)
+  // We use a trick: one dataset per category, but per-bar we need custom ordering.
+  // Chart.js stacked bars always render datasets in array order.
+  // For ranked: build a dataset array where dataset i holds the i-th smallest value
+  // for each bar independently, using a lookup mapping (barIdx, datasetIdx) -> original cat.
+  // We store the original cat key in a parallel structure for click handling.
+
+  const numCats = CATS.length;
+  const sortedCats = labels.map(label => {
+    const vals = byTeam[label]?.vals || {};
+    return CATS
+      .map(c => ({ key: c.key, color: c.color, val: +(vals[c.key] || 0).toFixed(2) }))
+      .sort((a, b) => a.val - b.val);
+  });
+
+  // datasets[rank] where rank 0 = smallest
+  const datasets = Array.from({ length: numCats }, (_, rank) => ({
+    label: `rank-${rank}`,
+    backgroundColor: labels.map((_, bi) => sortedCats[bi][rank].color),
+    data: labels.map((_, bi) => sortedCats[bi][rank].val),
+    stack: 'stack',
+    _sortedCats: sortedCats, // carry for click
+  }));
+
+  drawChart(labels, datasets, byTeam, sortedCats);
+}
+
+function drawChart(labels, datasets, byTeam, sortedCats) {
+  const ctx = document.getElementById('mainChart').getContext('2d');
+  if (chartInstance) chartInstance.destroy();
+
+  chartInstance = new Chart(ctx, {
+    type: 'bar',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: chartMode === 'fixed',
+          position: 'bottom',
+          labels: { usePointStyle: true, padding: 16, font: { size: 12 } },
+        },
+        tooltip: {
+          callbacks: {
+            label(ctx) {
+              if (chartMode === 'ranked') {
+                const bi = ctx.dataIndex;
+                const rank = ctx.datasetIndex;
+                const cat = sortedCats[bi][rank];
+                return ` ${cat.key}: ${ctx.parsed.y.toFixed(1)}%`;
+              }
+              return ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}%`;
+            },
+          },
+        },
+      },
+      scales: {
+        x: { stacked: true, grid: { display: false }, ticks: { font: { size: 11 }, maxRotation: 35 } },
+        y: { stacked: true, ticks: { callback: v => v + '%' }, grid: { color: '#F0EDE8' } },
+      },
+      onClick(event, elements) {
+        if (!elements.length) return;
+        const el = elements[0];
+        const bi = el.index;
+        const di = el.datasetIndex;
+        const team = labels[bi];
+        if (team === '⬥ Benchmark') return;
+
+        let catKey;
+        if (chartMode === 'fixed') {
+          catKey = CATS[di].key;
+        } else {
+          catKey = sortedCats[bi][di].key;
+        }
+        openModal(team, catKey);
+      },
+    },
+  });
+}
+
+// ── Month chips ──────────────────────────────────────────────────────────────
+function buildChips() {
+  const months = [...new Set(allData.map(monthKey))].sort();
+  const container = document.getElementById('monthChips');
+  container.innerHTML = '';
+  for (const mk of months) {
+    const btn = document.createElement('button');
+    btn.className = 'chip';
+    btn.textContent = monthLabel(mk);
+    btn.dataset.mk = mk;
+    btn.addEventListener('click', () => {
+      if (selectedMonths.has(mk)) selectedMonths.delete(mk);
+      else selectedMonths.add(mk);
+      btn.classList.toggle('active', selectedMonths.has(mk));
+      renderChart();
+    });
+    container.appendChild(btn);
+  }
+}
+
+// ── Boot ─────────────────────────────────────────────────────────────────────
+fetch('/api/data')
+  .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+  .then(data => {
+    allData = data;
+    buildChips();
+    renderChart();
+  })
+  .catch(err => {
+    document.querySelector('.card').innerHTML = `<p style="color:red;padding:20px">Failed to load data: ${err.message}</p>`;
+  });
+</script>
+</body>
+</html>
